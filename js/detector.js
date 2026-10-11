@@ -28,35 +28,53 @@ export class PhoneDetector {
   }
 
   async init(threshold) {
-    const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
-    const make = async (Task, opts) => {
-      try {
-        return await Task.createFromOptions(fileset, { ...opts, baseOptions: { ...opts.baseOptions, delegate: 'GPU' } });
-      } catch (e) {
-        console.warn('GPU delegate unavailable, falling back to CPU', e);
-        return Task.createFromOptions(fileset, { ...opts, baseOptions: { ...opts.baseOptions, delegate: 'CPU' } });
-      }
-    };
-    [this.hands, this.objects] = await Promise.all([
-      make(HandLandmarker, {
-        baseOptions: { modelAssetPath: HAND_MODEL },
+    this.threshold = threshold;
+    this.fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
+    try {
+      if (!hasWebGL2()) throw new Error('WebGL2 unavailable');
+      await this.create('GPU');
+    } catch (e) {
+      console.warn('GPU delegate unavailable, using CPU', e);
+      await this.create('CPU');
+    }
+  }
+
+  async create(delegate) {
+    const baseOptions = (modelAssetPath) => ({ modelAssetPath, delegate });
+    const [hands, objects] = await Promise.all([
+      HandLandmarker.createFromOptions(this.fileset, {
+        baseOptions: baseOptions(HAND_MODEL),
         runningMode: 'VIDEO',
         numHands: 2,
         minHandDetectionConfidence: 0.5,
         minHandPresenceConfidence: 0.5,
         minTrackingConfidence: 0.5
       }),
-      make(ObjectDetector, {
-        baseOptions: { modelAssetPath: OBJECT_MODEL },
+      ObjectDetector.createFromOptions(this.fileset, {
+        baseOptions: baseOptions(OBJECT_MODEL),
         runningMode: 'VIDEO',
-        scoreThreshold: threshold,
+        scoreThreshold: this.threshold,
         maxResults: 3,
         categoryAllowlist: ['cell phone']
       })
     ]);
+    this.close();
+    this.hands = hands;
+    this.objects = objects;
+    this.delegate = delegate;
+  }
+
+  // GPU init can succeed and still fail on every frame (blocklisted or lost
+  // WebGL). Switch to CPU once instead of silently detecting nothing.
+  fallBackToCpu(err) {
+    if (this.delegate !== 'GPU' || this.switching) return;
+    console.warn('GPU detection failed, switching to CPU', err);
+    this.switching = true;
+    this.create('CPU').catch(console.error).finally(() => { this.switching = false; });
   }
 
   async setThreshold(threshold) {
+    this.threshold = threshold;
     if (this.objects) await this.objects.setOptions({ scoreThreshold: threshold });
   }
 
@@ -66,7 +84,16 @@ export class PhoneDetector {
    * Coordinates are normalised to 0..1.
    */
   detect(video) {
-    if (!this.hands || video.readyState < 2 || !video.videoWidth) return null;
+    if (!this.hands || this.switching || video.readyState < 2 || !video.videoWidth) return null;
+    try {
+      return this.run(video);
+    } catch (e) {
+      this.fallBackToCpu(e);
+      return null;
+    }
+  }
+
+  run(video) {
     let ts = performance.now();
     if (ts <= this.lastTs) ts = this.lastTs + 1;
     this.lastTs = ts;
@@ -97,6 +124,14 @@ export class PhoneDetector {
     this.hands?.close();
     this.objects?.close();
     this.hands = this.objects = null;
+  }
+}
+
+function hasWebGL2() {
+  try {
+    return !!document.createElement('canvas').getContext('webgl2');
+  } catch {
+    return false;
   }
 }
 

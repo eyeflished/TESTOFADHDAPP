@@ -154,6 +154,10 @@ body.mirror .stage video, body.mirror .stage canvas { transform: scaleX(-1); }
 .stage-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .privacy-note { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.85em; margin: 14px 2px 0; }
 .privacy-note svg { width: 18px; height: 18px; color: var(--good); flex: none; }
+.bg-note { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.85em; margin: 6px 2px 0; }
+.bg-note svg { width: 18px; height: 18px; color: var(--accent-2); flex: none; }
+.field-group { padding: 14px 0 4px; }
+.group-title { margin: 0; font-size: 1em; }
 
 /* ------------------------------------------------------------------ buttons */
 .btn {
@@ -324,3 +328,15 @@ body.reduce-motion .alarm.fx-pulse, body.reduce-motion .alarm.fx-flash { backgro
   .breathe { width: 64px; height: 64px; }
   .timer-value { font-size: 2.6em; }
 }
+
+/* ------------------------------------------------------------------ mini window (Document PiP) */
+body.pip { margin: 0; overflow: hidden; background: #05070d; }
+body.pip .stage { position: fixed; inset: 0; aspect-ratio: auto; border-radius: 0; border: 0; }
+body.pip .stage-hidden p { display: none; }
+body.pip .breathe { width: 56px; height: 56px; }
+body.pip .countdown { width: 96px; height: 96px; }
+body.pip .countdown span { font-size: 2em; }
+.stage[data-state="alarm"] { box-shadow: inset 0 0 0 4px var(--danger); }
+.stage[data-state="warning"], .stage[data-state="pending"] { box-shadow: inset 0 0 0 3px var(--warn); }
+body.pip .stage[data-state="alarm"] { animation: pip-alarm 1s steps(1) infinite; }
+@keyframes pip-alarm { 50% { box-shadow: inset 0 0 0 14px var(--danger); } }
