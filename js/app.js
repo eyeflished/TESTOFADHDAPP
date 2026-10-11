@@ -599,6 +599,11 @@ function tick() {
 
   let res = null;
   try { res = S.detector.detect(els.video); } catch (e) { console.error(e); }
+  if (S.detector.broken) {
+    stopSession();
+    toast(t('errDetect'), 'bad', 12000);
+    return;
+  }
   drawOverlay(res);
   if (!res) return;
 
