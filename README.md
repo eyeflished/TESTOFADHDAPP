@@ -27,6 +27,15 @@ There's nothing to install: it's a static web page.
   - encouragement for phone-free streaks and for putting the phone down quickly
   - camera preview can be hidden (a calm breathing orb shows instead)
   - one-click "recommended ADHD setup"
+- **Works in the background**: once a session is running, you can switch to
+  other sites, your IDE, email or any other app, and tracking and the siren
+  keep going. Just keep the FocusGuard tab open (it can be in the background or minimised).
+  - a Web Worker clock drives detection while the tab is hidden, because browsers
+    pause or throttle normal page timers there
+  - **Mini window** (Chrome, Edge, Opera, Yandex Browser): a small always-on-top
+    camera window that floats over other apps
+  - optional **system notification** when the phone is detected, and the tab
+    title switches to "🔴 SIREN"
 - **English / Russian** toggle (picked automatically from the browser language).
 - **Fully anonymous**:
   - video is processed on the device only and is never uploaded or recorded
@@ -58,7 +67,9 @@ upload the folder.
 
 - Use a laptop or desktop webcam that can see your hands and desk.
 - Good lighting makes a big difference.
-- Keep the tab visible. Browsers slow down hidden tabs.
+- Don't close the FocusGuard tab. It can stay in the background.
+- Background mode works best in Chromium browsers (Chrome, Edge, Opera, Yandex).
+  Firefox works too, but has no mini window. Safari may slow down hidden tabs more.
 
 ## Structure
 
@@ -68,6 +79,7 @@ css/style.css       styles (normal and ADHD themes)
 js/app.js           session state machine, settings, UI
 js/detector.js      on-device hand/phone detection
 js/audio.js         synthesised siren and chimes
+js/ticker.js        worker clock that keeps detection running in background tabs
 js/i18n.js          English and Russian strings
 vendor/mediapipe/   @mediapipe/tasks-vision 0.10.21 (Apache-2.0)
 models/             hand_landmarker.task, efficientdet_lite0.tflite (Apache-2.0, Google)
@@ -86,6 +98,9 @@ FocusGuard — сайт, который помогает удерживать в
   эффект на экране, минимальная длительность, штрафное время, условие выключения.
 - Адаптация для СДВГ: спокойные цвета, крупный текст, мягкие предупреждения перед сиреной,
   таймер фокуса с перерывами, поддержка и похвала, можно скрыть изображение камеры.
+- Работа в фоне: можно переключаться на другие сайты и программы, и
+  отслеживание с сиреной продолжат работать. Есть мини-окно поверх всех окон и
+  системные уведомления.
 - Переключение языка: русский и английский.
 - Полная анонимность: всё обрабатывается на устройстве, без серверов, аккаунтов,
   cookies и аналитики.

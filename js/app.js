@@ -6,6 +6,7 @@ const STORAGE_KEY = 'focusguard.v1';
 const RELEASE_MS = 1500;     // phone must be unseen this long to count as released
 const MIN_HITS = 3;          // detections needed before a hold counts (filters one-off false positives)
 const PRAISE_EVERY_MIN = 5;
+const BACKGROUND_TICK_MS = 100; // detection rate while the tab is hidden
 
 // ---------------------------------------------------------------- settings
 
@@ -21,6 +22,7 @@ const DEFAULTS = {
   severity: { ...PRESETS.medium },
   adhd: { enabled: false, warnings: 1, pomodoro: false, focusMin: 25, breakMin: 5, praise: true, hidePreview: false, reduceMotion: false },
   detection: { mode: 'hand', sensitivity: 'normal', overlay: true, mirror: true },
+  background: { notify: false },
   privacy: { remember: true }
 };
 
@@ -68,10 +70,10 @@ function setPath(path, value) {
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  video: $('video'), overlay: $('overlay'), stage: $('stage'), placeholder: $('placeholder'),
+  video: $('video'), overlay: $('overlay'), stage: $('stage'), stageCard: document.querySelector('.stage-card'), placeholder: $('placeholder'),
   previewHidden: $('previewHidden'), pill: $('statusPill'), statusText: $('statusText'),
   countdown: $('countdown'), countdownBar: $('countdownBar'), countdownNum: $('countdownNum'),
-  startBtn: $('startBtn'), pauseBtn: $('pauseBtn'), togglePreview: $('togglePreview'),
+  startBtn: $('startBtn'), pauseBtn: $('pauseBtn'), togglePreview: $('togglePreview'), pipBtn: $('pipBtn'),
   task: $('taskInput'), timerPhase: $('timerPhase'), timerValue: $('timerValue'), timerProgress: $('timerProgress'),
   alarm: $('alarm'), alarmTitle: $('alarmTitle'), alarmText: $('alarmText'), toasts: $('toasts'),
   drawer: $('drawer'), backdrop: $('drawerBackdrop'), presetSummary: $('presetSummary'),
@@ -89,6 +91,7 @@ const S = {
   detector: null,
   loop: null,
   previewHidden: false,
+  notification: null,
 
   holdSince: null,      // first detection of current hold
   lastHit: 0,
@@ -137,8 +140,12 @@ function setI18nText(el, key) {
 
 function setStatus(state, vars) {
   els.pill.dataset.state = state;
+  els.stage.dataset.state = state;
   els.statusText.removeAttribute('data-i18n');
   els.statusText.textContent = t(`status.${state}`, vars);
+  // The tab title is visible from other tabs, so mirror urgent states there.
+  const mark = { alarm: '🔴 ', warning: '🟡 ', pending: '🟡 ' }[state];
+  document.title = mark ? `${mark}${els.statusText.textContent} · ${t('appName')}` : t('appName');
 }
 
 // ---------------------------------------------------------------- settings UI
@@ -189,10 +196,12 @@ function applyBodyModes() {
   b.toggle('adhd', settings.adhd.enabled);
   b.toggle('reduce-motion', settings.adhd.reduceMotion);
   b.toggle('mirror', settings.detection.mirror);
+  if (pipWin) pipWin.document.body.className = `${document.body.className} pip`;
 }
 
 function onSettingChanged(path) {
   if (path.startsWith('severity.')) settings.preset = 'custom';
+  if (path === 'background.notify' && settings.background.notify) requestNotifyPermission();
   if (path === 'detection.sensitivity') S.detector?.setThreshold(thresholdFor());
   if (path === 'adhd.pomodoro' && S.running) resetPhase();
   if (path === 'adhd.enabled' && settings.adhd.enabled && settings.severity.flash === 'flash') {
@@ -342,6 +351,7 @@ async function startSession() {
   setI18nText(els.startBtn.firstElementChild, 'stop');
   els.pauseBtn.disabled = false;
   els.togglePreview.disabled = false;
+  els.pipBtn.disabled = false;
   setStatus('watching');
   scheduleLoop();
 }
@@ -364,6 +374,8 @@ function stopSession() {
   els.pauseBtn.disabled = true;
   setI18nText(els.pauseBtn, 'pause');
   els.togglePreview.disabled = true;
+  els.pipBtn.disabled = true;
+  pipWin?.close();
   S.paused = false;
   setStatus('idle');
 }
@@ -395,6 +407,71 @@ function setPreviewHidden(hidden) {
   els.overlay.hidden = hidden;
   els.previewHidden.hidden = !hidden || !S.running;
   setI18nText(els.togglePreview, hidden ? 'showPreview' : 'hidePreview');
+}
+
+// ---------------------------------------------------------------- background helpers
+
+// Floating always-on-top mini window (Document Picture-in-Picture, Chromium
+// browsers). The live stage element is moved into it and back on close.
+let pipWin = null;
+
+async function toggleMiniWindow() {
+  if (pipWin) { pipWin.close(); return; }
+  try {
+    pipWin = await window.documentPictureInPicture.requestWindow({ width: 380, height: 230 });
+  } catch (e) {
+    console.warn(e);
+    return;
+  }
+  const doc = pipWin.document;
+  document.querySelectorAll('link[rel="stylesheet"]').forEach((l) => {
+    const link = doc.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = l.href;
+    doc.head.appendChild(link);
+  });
+  doc.title = t('appName');
+  doc.documentElement.lang = getLang();
+  applyBodyModes();
+  doc.body.append(els.stage);
+  els.video.play().catch(() => {});
+  setI18nText(els.pipBtn, 'pipClose');
+  pipWin.addEventListener('pagehide', () => {
+    pipWin = null;
+    els.stageCard.prepend(els.stage);
+    els.video.play().catch(() => {});
+    setI18nText(els.pipBtn, 'pipOpen');
+  });
+}
+
+function requestNotifyPermission() {
+  if (!('Notification' in window)) {
+    settings.background.notify = false;
+    toast(t('notifyUnsupported'), 'bad');
+    return;
+  }
+  Notification.requestPermission().then((p) => {
+    if (p === 'granted') return;
+    settings.background.notify = false;
+    saveSettings();
+    syncSettingsUI();
+    toast(t('notifyDenied'), 'bad', 6000);
+  });
+}
+
+// OS notification while the user is on another tab or app. Created locally
+// by the browser; nothing goes over the network.
+function notify() {
+  if (!settings.background.notify || !document.hidden || !('Notification' in window) ||
+      Notification.permission !== 'granted') return;
+  try {
+    S.notification?.close();
+    const n = new Notification(els.alarmTitle.textContent, {
+      body: els.alarmText.textContent, tag: 'focusguard', renotify: true, silent: true, icon: 'favicon.svg'
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    S.notification = n;
+  } catch { /* e.g. Android Chrome only allows service-worker notifications */ }
 }
 
 // ---------------------------------------------------------------- focus timer
@@ -458,22 +535,44 @@ function advancePhase(now) {
 
 // ---------------------------------------------------------------- detection loop
 
+// Visible tab: run once per animation frame. Hidden tab (user is on another
+// site or app): rAF stops and page timers get throttled, so a worker clock
+// drives detection instead. The camera stream keeps delivering frames either way.
+let ticker = null;
+
+function getTicker() {
+  if (!ticker) {
+    ticker = new Worker(new URL('./ticker.js', import.meta.url));
+    ticker.onmessage = () => {
+      if (S.loop?.t !== 'worker') return;
+      try { tick(); } finally {
+        if (S.loop?.t === 'worker') ticker.postMessage(BACKGROUND_TICK_MS);
+      }
+    };
+  }
+  return ticker;
+}
+
 function scheduleLoop() {
   cancelLoop();
+  if (!S.running) return;
+  if (document.hidden) {
+    S.loop = { t: 'worker' };
+    getTicker().postMessage(BACKGROUND_TICK_MS);
+    return;
+  }
   const step = () => {
-    tick();
-    if (!S.running) return;
-    // rAF stops in background tabs; fall back to a slower timer there.
-    S.loop = document.hidden
-      ? { id: setTimeout(step, 250), t: 'to' }
-      : { id: requestAnimationFrame(step), t: 'raf' };
+    try { tick(); } finally {
+      if (S.loop?.t === 'raf') S.loop.id = requestAnimationFrame(step);
+    }
   };
-  step();
+  S.loop = { t: 'raf', id: requestAnimationFrame(step) };
 }
 
 function cancelLoop() {
   if (!S.loop) return;
-  if (S.loop.t === 'raf') cancelAnimationFrame(S.loop.id); else clearTimeout(S.loop.id);
+  if (S.loop.t === 'raf') cancelAnimationFrame(S.loop.id);
+  else ticker?.postMessage(0);
   S.loop = null;
 }
 
@@ -565,6 +664,7 @@ function startViolation(now) {
     sound.chime(Math.min(60, settings.severity.volume), [659.25, 523.25]);
     showAlarm('warning');
     setStatus('warning');
+    notify();
     return;
   }
   startAlarm(now);
@@ -576,6 +676,7 @@ function startAlarm(now) {
   sound.start(settings.severity);
   showAlarm('alarm');
   setStatus('alarm');
+  notify();
   if (S.phase === 'focus' && settings.severity.penaltyMin > 0) {
     S.phaseEnd += settings.severity.penaltyMin * 60000;
     S.phaseLen += settings.severity.penaltyMin * 60000;
@@ -588,6 +689,8 @@ function endViolation(silent, now = performance.now()) {
   const { kind, start } = S.violation;
   S.violation = null;
   sound.stop();
+  S.notification?.close();
+  S.notification = null;
   els.alarm.hidden = true;
   els.alarm.className = 'alarm';
   document.body.classList.remove('alarming');
@@ -713,6 +816,10 @@ function roundRect(x, y, w, h, r) {
 els.startBtn.addEventListener('click', () => (S.running ? stopSession() : startSession()));
 els.pauseBtn.addEventListener('click', togglePause);
 els.togglePreview.addEventListener('click', () => setPreviewHidden(!S.previewHidden));
+if ('documentPictureInPicture' in window) {
+  els.pipBtn.hidden = false;
+  els.pipBtn.addEventListener('click', toggleMiniWindow);
+}
 setInterval(() => { if (S.running && (S.paused || document.hidden)) updateTimer(performance.now()); }, 1000);
 
 setLang(settings.lang || detectLang());
