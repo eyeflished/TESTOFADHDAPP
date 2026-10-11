@@ -25,6 +25,8 @@ export class PhoneDetector {
     this.lastTs = -1;
     this.lastHands = [];
     this.lastPhones = [];
+    this.failures = 0;
+    this.broken = false; // set when detection cannot run in this browser at all
   }
 
   async init(threshold) {
@@ -84,11 +86,16 @@ export class PhoneDetector {
    * Coordinates are normalised to 0..1.
    */
   detect(video) {
-    if (!this.hands || this.switching || video.readyState < 2 || !video.videoWidth) return null;
+    if (!this.hands || this.switching || this.broken || video.readyState < 2 || !video.videoWidth) return null;
     try {
-      return this.run(video);
+      const res = this.run(video);
+      this.failures = 0;
+      return res;
     } catch (e) {
-      this.fallBackToCpu(e);
+      if (this.delegate === 'GPU') this.fallBackToCpu(e);
+      // Repeated failures on CPU mean no usable WebGL at all. Stop calling
+      // into the runtime: hundreds of failed calls eventually hang the page.
+      else if (++this.failures >= 20) { this.broken = true; console.error('Detection unavailable', e); }
       return null;
     }
   }
