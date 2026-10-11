@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Privacy: nothing may be loaded from or sent to any other origin. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0d1220">
+  <title>FocusGuard</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <circle cx="16" cy="16" r="6" fill="currentColor"/>
+      </svg>
+      <div>
+        <div class="brand-name" data-i18n="appName">FocusGuard</div>
+        <div class="brand-tag" data-i18n="tagline">Put the phone down. Stay in focus.</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ru">RU</button>
+      </div>
+      <button type="button" class="icon-btn" id="openSettings" data-i18n-title="settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1L11 21h4l.3-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card stage-card">
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="stage-placeholder" id="placeholder">
+          <div class="pulse-orb"></div>
+          <p data-i18n="placeholder">Camera is off. Press “Start session” and allow camera access.</p>
+        </div>
+        <div class="stage-hidden" id="previewHidden" hidden>
+          <div class="breathe"></div>
+          <p data-i18n="previewHidden">Camera preview hidden — tracking is still on.</p>
+        </div>
+        <div class="status-pill" id="statusPill" data-state="idle">
+          <span class="dot"></span><span id="statusText" data-i18n="status.idle">Not running</span>
+        </div>
+        <div class="countdown" id="countdown" hidden>
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" class="track"/><circle cx="50" cy="50" r="44" class="bar" id="countdownBar"/></svg>
+          <span id="countdownNum">3</span>
+        </div>
+      </div>
+      <div class="stage-controls">
+        <button type="button" class="btn primary big" id="startBtn">
+          <span data-i18n="start">Start session</span>
+        </button>
+        <button type="button" class="btn ghost" id="pauseBtn" disabled data-i18n="pause">Pause</button>
+        <button type="button" class="btn ghost" id="togglePreview" disabled data-i18n="hidePreview">Hide preview</button>
+      </div>
+      <p class="privacy-note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span data-i18n="privacyShort">100% anonymous: video is processed only on this device and never leaves it.</span>
+      </p>
+    </section>
+
+    <aside class="side">
+      <section class="card focus-card">
+        <label class="label" for="taskInput" data-i18n="taskLabel">What are you focusing on?</label>
+        <input id="taskInput" class="task-input" type="text" maxlength="80" autocomplete="off" data-i18n-placeholder="taskPlaceholder" placeholder="e.g. Finish chapter 3">
+        <div class="timer" id="timerBlock">
+          <div class="timer-phase" id="timerPhase" data-i18n="phase.session">Session</div>
+          <div class="timer-value" id="timerValue">00:00</div>
+          <div class="timer-bar"><span id="timerProgress"></span></div>
+        </div>
+      </section>
+
+      <section class="card stats-card">
+        <h2 class="card-title" data-i18n="statsTitle">This session</h2>
+        <div class="stats">
+          <div class="stat"><span class="stat-value" id="statStreak">0:00</span><span class="stat-label" data-i18n="statStreak">Phone-free now</span></div>
+          <div class="stat"><span class="stat-value" id="statBest">0:00</span><span class="stat-label" data-i18n="statBest">Best streak</span></div>
+          <div class="stat"><span class="stat-value" id="statViolations">0</span><span class="stat-label" data-i18n="statViolations">Sirens</span></div>
+          <div class="stat"><span class="stat-value" id="statWarnings">0</span><span class="stat-label" data-i18n="statWarnings">Warnings</span></div>
+          <div class="stat wide"><span class="stat-value" id="statPhoneTime">0:00</span><span class="stat-label" data-i18n="statPhoneTime">Time with phone in hand</span></div>
+        </div>
+        <p class="hint" data-i18n="statsHint">Stats live only in this tab and vanish when you close it.</p>
+      </section>
+
+      <section class="card severity-card">
+        <h2 class="card-title" data-i18n="severityTitle">Punishment severity</h2>
+        <div class="segmented" id="quickPresets">
+          <button type="button" data-preset="gentle" data-i18n="preset.gentle">Gentle</button>
+          <button type="button" data-preset="medium" data-i18n="preset.medium">Medium</button>
+          <button type="button" data-preset="strict" data-i18n="preset.strict">Strict</button>
+          <button type="button" data-preset="custom" data-i18n="preset.custom">Custom</button>
+        </div>
+        <p class="hint" id="presetSummary"></p>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Alarm overlay -->
+  <div class="alarm" id="alarm" hidden>
+    <div class="alarm-inner">
+      <svg viewBox="0 0 64 64" class="alarm-icon" aria-hidden="true"><rect x="20" y="6" width="24" height="44" rx="4" fill="none" stroke="currentColor" stroke-width="4"/><path d="M12 58 52 6" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>
+      <h1 id="alarmTitle" data-i18n="alarmTitle">Put the phone down!</h1>
+      <p id="alarmText"></p>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <!-- Settings drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 data-i18n="settings">Settings</h2>
+      <button type="button" class="icon-btn" id="closeSettings" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="severity" class="active" data-i18n="tab.severity">Severity</button>
+      <button type="button" data-tab="adhd" data-i18n="tab.adhd">ADHD</button>
+      <button type="button" data-tab="detection" data-i18n="tab.detection">Detection</button>
+      <button type="button" data-tab="privacy" data-i18n="tab.privacy">Privacy</button>
+    </nav>
+
+    <div class="drawer-body">
+      <!-- SEVERITY -->
+      <section class="tab-panel active" data-panel="severity">
+        <div class="field">
+          <span class="label" data-i18n="preset">Preset</span>
+          <div class="segmented" id="drawerPresets">
+            <button type="button" data-preset="gentle" data-i18n="preset.gentle">Gentle</button>
+            <button type="button" data-preset="medium" data-i18n="preset.medium">Medium</button>
+            <button type="button" data-preset="strict" data-i18n="preset.strict">Strict</button>
+            <button type="button" data-preset="custom" data-i18n="preset.custom">Custom</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-row"><label class="label" for="s-grace" data-i18n="grace">Grace period before the siren</label><output data-for="s-grace"></output></div>
+          <input type="range" id="s-grace" data-setting="severity.grace" min="0" max="15" step="0.5">
+          <p class="hint" data-i18n="graceHint">How long you may hold the phone before the punishment starts.</p>
+        </div>
+
+        <div class="field">
+          <span class="label" data-i18n="sound">Sound</span>
+          <div class="segmented wrap" data-setting="severity.sound">
+            <button type="button" data-value="chime" data-i18n="sound.chime">Soft chime</button>
+            <button type="button" data-value="alarm" data-i18n="sound.alarm">Beeping alarm</button>
+            <button type="button" data-value="siren" data-i18n="sound.siren">Siren</button>
+            <button type="button" data-value="buzzer" data-i18n="sound.buzzer">Harsh buzzer</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-row"><label class="label" for="s-volume" data-i18n="volume">Volume</label><output data-for="s-volume"></output></div>
+          <input type="range" id="s-volume" data-setting="severity.volume" min="0" max="100" step="5">
+          <button type="button" class="btn ghost small" id="testSound" data-i18n="testSound">Test sound (2 s)</button>
+        </div>
+
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="escalate">Escalation</span>
+            <p class="hint" data-i18n="escalateHint">The longer you hold the phone, the louder it gets.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="severity.escalate"><span></span></label>
+        </div>
+        <div class="field" data-show-if="severity.escalate">
+          <div class="field-row"><label class="label" for="s-escsec" data-i18n="escalateTime">Time to full volume</label><output data-for="s-escsec"></output></div>
+          <input type="range" id="s-escsec" data-setting="severity.escalateSec" min="3" max="60" step="1">
+        </div>
+
+        <div class="field">
+          <span class="label" data-i18n="flash">Screen effect</span>
+          <div class="segmented wrap" data-setting="severity.flash">
+            <button type="button" data-value="none" data-i18n="flash.none">None</button>
+            <button type="button" data-value="glow" data-i18n="flash.glow">Soft glow</button>
+            <button type="button" data-value="pulse" data-i18n="flash.pulse">Red pulse</button>
+            <button type="button" data-value="flash" data-i18n="flash.flash">Intense flash</button>
+          </div>
+          <p class="hint" data-i18n="flashHint">Flashing is capped below 3 per second for photosensitive safety.</p>
+        </div>
+
+        <div class="field">
+          <div class="field-row"><label class="label" for="s-min" data-i18n="minDuration">Minimum siren duration</label><output data-for="s-min"></output></div>
+          <input type="range" id="s-min" data-setting="severity.minDuration" min="0" max="15" step="1">
+          <p class="hint" data-i18n="minDurationHint">Siren keeps going at least this long, even if you drop the phone instantly.</p>
+        </div>
+
+        <div class="field">
+          <div class="field-row"><label class="label" for="s-penalty" data-i18n="penalty">Penalty time added to focus timer</label><output data-for="s-penalty"></output></div>
+          <input type="range" id="s-penalty" data-setting="severity.penaltyMin" min="0" max="10" step="1">
+        </div>
+
+        <div class="field">
+          <span class="label" data-i18n="stopWhen">Siren stops when</span>
+          <div class="segmented wrap" data-setting="severity.stopWhen">
+            <button type="button" data-value="release" data-i18n="stop.release">Phone released</button>
+            <button type="button" data-value="outOfView" data-i18n="stop.outOfView">Phone out of sight</button>
+          </div>
+          <p class="hint" data-i18n="stopHint">“Out of sight” is stricter: lock the phone and put it away (screen down or in a drawer).</p>
+        </div>
+      </section>
+
+      <!-- ADHD -->
+      <section class="tab-panel" data-panel="adhd">
+        <div class="field toggle-field highlight">
+          <div>
+            <span class="label" data-i18n="adhdMode">ADHD adaptation</span>
+            <p class="hint" data-i18n="adhdModeHint">Calm low-stimulation visuals, larger text, no harsh flashing, warnings before the siren, praise for progress and a focus timer with breaks.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="adhd.enabled"><span></span></label>
+        </div>
+
+        <div class="field">
+          <div class="field-row"><label class="label" for="a-warn" data-i18n="warnings">Gentle warnings before a real siren</label><output data-for="a-warn"></output></div>
+          <input type="range" id="a-warn" data-setting="adhd.warnings" min="0" max="5" step="1">
+          <p class="hint" data-i18n="warningsHint">First slips only get a soft chime and a kind reminder. Resets every focus block.</p>
+        </div>
+
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="pomodoro">Focus timer with breaks</span>
+            <p class="hint" data-i18n="pomodoroHint">Short focus blocks are easier to start. During breaks the phone is allowed.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="adhd.pomodoro"><span></span></label>
+        </div>
+        <div class="field" data-show-if="adhd.pomodoro">
+          <div class="field-row"><label class="label" for="a-focus" data-i18n="focusLen">Focus block</label><output data-for="a-focus"></output></div>
+          <input type="range" id="a-focus" data-setting="adhd.focusMin" min="5" max="60" step="5">
+        </div>
+        <div class="field" data-show-if="adhd.pomodoro">
+          <div class="field-row"><label class="label" for="a-break" data-i18n="breakLen">Break</label><output data-for="a-break"></output></div>
+          <input type="range" id="a-break" data-setting="adhd.breakMin" min="1" max="20" step="1">
+        </div>
+
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="praise">Encouragement</span>
+            <p class="hint" data-i18n="praiseHint">Small celebrations for phone-free streaks and for putting the phone down quickly.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="adhd.praise"><span></span></label>
+        </div>
+
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="hidePreviewDefault">Hide camera preview by default</span>
+            <p class="hint" data-i18n="hidePreviewDefaultHint">Seeing yourself can be distracting. Tracking still works.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="adhd.hidePreview"><span></span></label>
+        </div>
+
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="reduceMotion">Reduce motion</span>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="adhd.reduceMotion"><span></span></label>
+        </div>
+
+        <button type="button" class="btn ghost small" id="adhdPreset" data-i18n="adhdPreset">Apply recommended ADHD setup</button>
+      </section>
+
+      <!-- DETECTION -->
+      <section class="tab-panel" data-panel="detection">
+        <div class="field">
+          <span class="label" data-i18n="detectMode">Trigger when</span>
+          <div class="segmented wrap" data-setting="detection.mode">
+            <button type="button" data-value="hand" data-i18n="detect.hand">Phone is in a hand</button>
+            <button type="button" data-value="any" data-i18n="detect.any">Any phone is visible</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label" data-i18n="sensitivity">Sensitivity</span>
+          <div class="segmented" data-setting="detection.sensitivity">
+            <button type="button" data-value="low" data-i18n="sens.low">Low</button>
+            <button type="button" data-value="normal" data-i18n="sens.normal">Normal</button>
+            <button type="button" data-value="high" data-i18n="sens.high">High</button>
+          </div>
+          <p class="hint" data-i18n="sensitivityHint">Higher catches more, but may react to similar objects (remote, wallet).</p>
+        </div>
+        <div class="field toggle-field">
+          <div><span class="label" data-i18n="showOverlay">Show tracking overlay</span></div>
+          <label class="switch"><input type="checkbox" data-setting="detection.overlay"><span></span></label>
+        </div>
+        <div class="field toggle-field">
+          <div><span class="label" data-i18n="mirror">Mirror preview</span></div>
+          <label class="switch"><input type="checkbox" data-setting="detection.mirror"><span></span></label>
+        </div>
+        <div class="tips">
+          <h3 data-i18n="tipsTitle">Tips for reliable tracking</h3>
+          <ul>
+            <li data-i18n="tip1">Use a laptop or desktop webcam that sees your hands and desk.</li>
+            <li data-i18n="tip2">Good, even lighting helps a lot.</li>
+            <li data-i18n="tip3">Keep this tab visible — browsers slow down hidden tabs.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- PRIVACY -->
+      <section class="tab-panel" data-panel="privacy">
+        <div class="privacy-block">
+          <h3 data-i18n="privacyTitle">Fully anonymous by design</h3>
+          <ul class="checklist">
+            <li data-i18n="priv1">The camera image is analysed locally in your browser by on-device AI models.</li>
+            <li data-i18n="priv2">No video, photos or detection results are ever uploaded or recorded.</li>
+            <li data-i18n="priv3">No accounts, no cookies, no analytics, no trackers, no third-party servers.</li>
+            <li data-i18n="priv4">All code and models are served from this same site; a strict security policy blocks any other connection.</li>
+            <li data-i18n="priv5">Session statistics live only in memory and disappear when you close the tab.</li>
+          </ul>
+        </div>
+        <div class="field toggle-field">
+          <div>
+            <span class="label" data-i18n="remember">Remember my settings on this device</span>
+            <p class="hint" data-i18n="rememberHint">Saved only in this browser’s local storage. Never sent anywhere.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="privacy.remember"><span></span></label>
+        </div>
+        <button type="button" class="btn danger small" id="forgetAll" data-i18n="forget">Erase everything stored on this device</button>
+      </section>
+    </div>
+  </aside>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
