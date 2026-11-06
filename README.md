@@ -9,8 +9,15 @@ There's nothing to install: it's a static web page.
 
 ## Features
 
-- **Real-time hand + phone tracking** in the browser (MediaPipe Hand Landmarker
-  plus the EfficientDet-Lite0 object detector, "cell phone" class).
+- **Real-time hand + phone tracking** in the browser (MediaPipe Hand Landmarker,
+  the EfficientDet-Lite0 object detector and, as a fallback, the Pose Landmarker):
+  - the phone detector also looks at zoomed-in crops around each hand, where a
+    phone held at desk distance is several times larger than in the whole frame
+  - when a phone is visible but the hand model misses the gripping hand (the
+    phone hides the palm), the body-pose model checks whether a wrist or finger
+    is on the phone
+  - phones are tracked between frames with hysteresis, so the outline does not
+    flicker between red and yellow, and the drawn hand skeleton is smoothed
 - **Siren** made with the Web Audio API: soft chime, beeping alarm, siren or harsh buzzer.
 - **Configurable punishment severity**: Gentle / Medium / Strict presets, or set each option yourself:
   - grace period before the siren (0–15 s)
@@ -57,11 +64,36 @@ python3 -m http.server 8000
 ```
 
 **GitHub Pages (free hosting)**: in the repo, go to *Settings → Pages → Build
-and deployment → Deploy from a branch*, then pick the branch and `/ (root)`.
+and deployment → Deploy from a branch*, then pick the `focusguard` branch and `/ (root)`.
 The site will appear at `https://<user>.github.io/<repo>/`.
 
 Any other static host (Netlify, Cloudflare Pages, Vercel, nginx) works too. Just
 upload the folder.
+
+## How accurate is it?
+
+Measured on labelled photos from [Open Images](https://storage.googleapis.com/openimages/web/index.html)
+(people holding phones, and hands without phones), run through the app's own
+detection code in Chromium. Each photo was also played as about one second of
+slightly shaky 15 fps video, so frame-to-frame tracking counts too. Settings
+were tuned on one set of photos and scored on photos never used for tuning.
+
+Webcam-like photos (people holding phones, 136 clips; hands only, 200 clips):
+
+| | Before | Now |
+|---|---|---|
+| Phone in hand caught within about a second | 65% | **82%** |
+| Outline red while the phone is held | 57% | **73%** |
+| Outline yellow although the phone is in a hand | 26% | **12%** |
+| Hands only: lasting false alarm | 4.5% | 5.5% |
+
+The false-alarm difference is within noise. Combined over both held-out sets
+(400 hand-only clips) it is 13 vs 14 clips, mostly microphones, an ID badge,
+and devices the labels missed. Extreme close-ups, where only fingers are visible,
+are harder: 14% → 51% caught. The same photos shrunk into a busy scene: 21% → 45%.
+
+These are internet photos, not real webcam footage, so the absolute numbers will
+differ with your light and camera angle. The improvement is the reliable part.
 
 ## Tips
 
@@ -82,7 +114,8 @@ js/audio.js         synthesised siren and chimes
 js/ticker.js        worker clock that keeps detection running in background tabs
 js/i18n.js          English and Russian strings
 vendor/mediapipe/   @mediapipe/tasks-vision 0.10.21 (Apache-2.0)
-models/             hand_landmarker.task, efficientdet_lite0.tflite (Apache-2.0, Google)
+models/             hand_landmarker.task, efficientdet_lite0.tflite,
+                    pose_landmarker_lite.task (Apache-2.0, Google)
 ```
 
 ---
@@ -101,6 +134,10 @@ FocusGuard — сайт, который помогает удерживать в
 - Работа в фоне: можно переключаться на другие сайты и программы, и
   отслеживание с сиреной продолжат работать. Есть мини-окно поверх всех окон и
   системные уведомления.
+- Точнее находит телефон в руке: смотрит отдельно на область вокруг каждой руки,
+  находит руку по позе тела, если ладонь закрыта телефоном, и не мигает рамкой.
+  На тестовых фото: 82% вместо 65% телефонов в руке замечено примерно за секунду,
+  при том же уровне ложных срабатываний.
 - Переключение языка: русский и английский.
 - Полная анонимность: всё обрабатывается на устройстве, без серверов, аккаунтов,
   cookies и аналитики.

@@ -310,7 +310,8 @@ async function startSession() {
   try {
     setStatus('camera');
     S.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 960 }, height: { ideal: 540 }, facingMode: 'user' },
+      // 720p gives the crops around each hand more pixels to work with.
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: false
     });
   } catch (e) {
@@ -778,7 +779,7 @@ function drawOverlay(res) {
   const danger = styles.getPropertyValue('--danger').trim() || '#f43f5e';
 
   for (const p of res.phones) {
-    ctx2d.strokeStyle = res.inHand ? danger : '#facc15';
+    ctx2d.strokeStyle = p.inHand ? danger : '#facc15';
     ctx2d.lineWidth = 3;
     ctx2d.setLineDash([8, 6]);
     roundRect(X(p.x), Y(p.y), p.w * vw * scale, p.h * vh * scale, 10);
@@ -789,7 +790,7 @@ function drawOverlay(res) {
   ctx2d.lineWidth = 2.5;
   ctx2d.strokeStyle = accent;
   ctx2d.fillStyle = accent;
-  for (const hand of res.hands) {
+  for (const hand of smoothHands(res.hands, performance.now())) {
     ctx2d.globalAlpha = 0.85;
     ctx2d.beginPath();
     for (const { start, end } of HAND_CONNECTIONS) {
@@ -804,6 +805,38 @@ function drawOverlay(res) {
     }
     ctx2d.globalAlpha = 1;
   }
+}
+
+// One Euro filter for the drawn skeleton only (detection uses raw landmarks):
+// strong smoothing while the hand is still, little lag when it moves fast.
+const HAND_SMOOTH = { minCutoff: 2, beta: 4, dCutoff: 1 };
+let smoothed = [];
+let smoothedAt = 0;
+
+function smoothHands(hands, now) {
+  const dt = Math.min(0.1, Math.max(0.001, (now - smoothedAt) / 1000));
+  smoothedAt = now;
+  const alpha = (cutoff) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
+  return hands.map((hand, i) => {
+    const prev = smoothed[i];
+    // New hand, or a different hand in this slot: start from the raw points.
+    if (!prev || Math.hypot(hand[0].x - prev[0].x, hand[0].y - prev[0].y) > 0.15) {
+      smoothed[i] = hand.map((p) => ({ x: p.x, y: p.y, vx: 0, vy: 0 }));
+      return smoothed[i];
+    }
+    for (let j = 0; j < hand.length; j++) {
+      const s = prev[j];
+      const vx = (hand[j].x - s.x) / dt;
+      const vy = (hand[j].y - s.y) / dt;
+      const ad = alpha(HAND_SMOOTH.dCutoff);
+      s.vx += ad * (vx - s.vx);
+      s.vy += ad * (vy - s.vy);
+      const a = alpha(HAND_SMOOTH.minCutoff + HAND_SMOOTH.beta * Math.hypot(s.vx, s.vy));
+      s.x += a * (hand[j].x - s.x);
+      s.y += a * (hand[j].y - s.y);
+    }
+    return prev;
+  });
 }
 
 function roundRect(x, y, w, h, r) {
