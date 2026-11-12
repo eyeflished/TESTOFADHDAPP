@@ -12,6 +12,12 @@
   <title>FocusGuard</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
+  <!-- Start fetching the heavy AI assets immediately (same-origin only). -->
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="modulepreload" href="vendor/mediapipe/vision_bundle.mjs">
+  <link rel="preload" href="models/hand_landmarker.task" as="fetch" crossorigin>
+  <link rel="preload" href="models/efficientdet_lite0.tflite" as="fetch" crossorigin>
+  <link rel="preload" href="vendor/mediapipe/wasm/vision_wasm_internal.wasm" as="fetch" crossorigin>
 </head>
 <body>
   <header class="topbar">
