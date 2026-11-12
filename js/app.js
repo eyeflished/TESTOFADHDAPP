@@ -301,7 +301,8 @@ async function startSession() {
   try {
     setStatus('camera');
     S.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 960 }, height: { ideal: 540 }, facingMode: 'user' },
+      // 720p gives the crops around each hand more pixels to work with.
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: false
     });
   } catch (e) {
@@ -318,9 +319,8 @@ async function startSession() {
   if (!S.detector) {
     setStatus('loading');
     try {
-      const det = new PhoneDetector();
-      await det.init(thresholdFor());
-      S.detector = det;
+      // Prefer the background warm-start so the wait is often already done.
+      S.detector = await ensureDetector();
     } catch (e) {
       console.error(e);
       toast(t('errModels'), 'bad', 8000);
@@ -328,6 +328,7 @@ async function startSession() {
       return;
     }
   }
+  S.detector.setThreshold(thresholdFor());
 
   const now = performance.now();
   Object.assign(S, {
@@ -500,6 +501,11 @@ function tick() {
 
   let res = null;
   try { res = S.detector.detect(els.video); } catch (e) { console.error(e); }
+  if (S.detector.broken) {
+    stopSession();
+    toast(t('errModels'), 'bad', 12000);
+    return;
+  }
   drawOverlay(res);
   if (!res) return;
 
@@ -670,7 +676,7 @@ function drawOverlay(res) {
   const danger = styles.getPropertyValue('--danger').trim() || '#f43f5e';
 
   for (const p of res.phones) {
-    ctx2d.strokeStyle = res.inHand ? danger : '#facc15';
+    ctx2d.strokeStyle = p.inHand ? danger : '#facc15';
     ctx2d.lineWidth = 3;
     ctx2d.setLineDash([8, 6]);
     roundRect(X(p.x), Y(p.y), p.w * vw * scale, p.h * vh * scale, 10);
@@ -710,6 +716,25 @@ function roundRect(x, y, w, h, r) {
 
 // ---------------------------------------------------------------- boot
 
+// Warm-load WASM + models as soon as the page opens so they overlap with the
+// user reading the UI / granting the camera, instead of blocking Start.
+let warmPromise = null;
+function ensureDetector() {
+  if (S.detector) return Promise.resolve(S.detector);
+  if (!warmPromise) {
+    warmPromise = (async () => {
+      const det = new PhoneDetector();
+      await det.init(thresholdFor());
+      S.detector = det;
+      return det;
+    })().catch((e) => {
+      warmPromise = null;
+      throw e;
+    });
+  }
+  return warmPromise;
+}
+
 els.startBtn.addEventListener('click', () => (S.running ? stopSession() : startSession()));
 els.pauseBtn.addEventListener('click', togglePause);
 els.togglePreview.addEventListener('click', () => setPreviewHidden(!S.previewHidden));
@@ -721,3 +746,4 @@ bindSettings();
 syncSettingsUI();
 setStatus('idle');
 updateTimer(performance.now());
+ensureDetector().catch((e) => console.warn('Background model warm-up failed', e));
